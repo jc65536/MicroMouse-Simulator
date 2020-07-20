@@ -1,5 +1,5 @@
 # MicroMouse-Simulator
-Micro-mouse sim software for SFHS robotics team.
+Micro-mouse sim software for PHHS robotics team.
 
 ## Overview
 This is the Micro Mouse programming challenge for students interested in programming at Lancer Robotics. The goal of this isn't to teach students how to program an entire robot, but rather provide a challenge to teach some programming pricniples and help members get to the level where they can proficiently program the competition robot.
