@@ -4,6 +4,7 @@
 #include <stack>
 #include <map>
 #include <cstring>
+#include <algorithm>
 
 // destination coordinates
 const int DX = 11;
@@ -32,7 +33,9 @@ struct Node {
     Node (int i, int x, int y) : i(i), x(x), y(y) {}
 } DEAD_END(-1, -1, -1);
 
-
+int sq(int x) {
+    return x * x;
+}
 
 /* Usable functions:
  * bool isWallLeft();
@@ -146,8 +149,15 @@ void microMouseServer::studentAI() {
     goingBack = false;
 
     int paths = test();
+
+    // allows the mouse to go in the direction that minimizes its distance from the destination
+    std::pair<Dir, int> distanceDifferences[4] = {{N, sq(DX - x) + sq(DY - (y + 1))}, {E, sq(DX - (x + 1)) + sq(DY - y)}, {W, sq(DX - (x - 1)) + sq(DY - y)}, {S, sq(DX - x) + sq(DY - (y - 1))}};
+    std::sort(distanceDifferences, distanceDifferences + 4, [&](std::pair<Dir, int> &a, std::pair<Dir, int> &b) -> bool {
+        return a.second < b.second;
+    });
+
     for (int i = 0; i < 4; i++) {
-        Dir d = Dir(1 << i);
+        Dir d = distanceDifferences[i].first;
         if (paths & d && currentNode->adj[d] != &DEAD_END && d != s.top()) {            // checks if the direction is open, not already marked as a dead end, and not the direction we just came from
             bool t = travel(d);
             if (t) {
