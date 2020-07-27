@@ -5,9 +5,11 @@
 #include <map>
 #include <cstring>
 
+// destination coordinates
 const int DX = 10;
 const int DY = 6;
 
+// cardinal directions
 enum Dir { N = 0b0001, E = 0b0010, W = 0b0100, S = 0b1000 };
 
 Dir opposite(Dir d) {
@@ -23,6 +25,7 @@ Dir opposite(Dir d) {
     }
 }
 
+// a node is any tile with more than 2 exit paths
 struct Node {
     int i, x, y;
     std::map<Dir, Node *> adj = {{N, nullptr}, {E, nullptr}, {W, nullptr}, {S, nullptr}};
@@ -48,10 +51,12 @@ void microMouseServer::studentAI() {
     if (!firstRun) return;
     firstRun = false;
 
+    // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
     int x = 0, y = 0, nodeNum = 0;
-    Dir lastStep;
+    Dir lastStep;       // always updated to be the same direction as the step we just took
 
-    // returns 1 for open directions and 0 for blocked directions
+    // sets a bit for open directions and clears a bit for blocked directions
+    // thus, you can & the return with any Dir and see if that direction is open
     auto test = [&]() -> int {
         int r = isWallForward() + isWallRight() * 2 + isWallLeft() * 4;
         turnRight();
@@ -61,6 +66,7 @@ void microMouseServer::studentAI() {
         return r;
     };
 
+    // take a step in the specified cardinal direction
     auto step = [&](Dir d) {
         lastStep = d;
         switch (d) {
@@ -86,6 +92,8 @@ void microMouseServer::studentAI() {
         }
     };
 
+    // travel from a node in the specified direction
+    // stops at either a node or a dead end, and returns true for stopping at node or false for stopping at dead end
     auto travel = [&](Dir d) -> bool {
         Dir nextDir = d;
         while (true) {
@@ -109,36 +117,6 @@ void microMouseServer::studentAI() {
         }
     };
 
-    /* Pseudocode
-        start at a node
-        set going back to false
-        while not at destination:
-            if not going back:
-                push opposite of last step to backtrack stack
-            else:
-                mark opposite of last step as dead end
-            set going back to false
-            set paths to test value
-            for each available direction d:
-                if d is not a dead end:
-                    travel in direction d
-                    if dead end:
-                        go back
-                        mark direction d as dead end
-                    else:
-                        if node doesn't exist:
-                            make a new node
-                        add the node we just came from to this node's adj list
-                        add this node to the adj list of the node we just came from
-                        add adjacents like above
-                        break for, continue
-            if all directions are dead ends
-                pop from backtrack stack
-                peek direction d from backtrack stack
-                go back in direction d
-                set going back to true
-     */
-
     // we should start at a node, just so that the loop can be simplified
     int startingPaths = test();
     switch (startingPaths) {
@@ -150,15 +128,16 @@ void microMouseServer::studentAI() {
         break;
     }
 
-    Node *map[20][20];
+    Node *map[20][20];                  // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
     std::memset(map, 0, 400 * sizeof(Node *));
-    std::stack<Dir> s;
-    map[x][y] = new Node(nodeNum++, x, y);
+    std::stack<Dir> s;                  // use this stack for backtracking
+    map[x][y] = new Node(nodeNum++, x, y);  // set the first starting node
 
     bool goingBack = false;
     while (x != DX && y != DY) {
         Node *currentNode = map[x][y];
 
+        // if we were retreating from a dead end, no need to push an extraneous last step onto the stack - it's already there
         if (!goingBack)
             s.push(opposite(lastStep));
         else
@@ -168,27 +147,29 @@ void microMouseServer::studentAI() {
         int paths = test();
         for (int i = 0; i < 4; i++) {
             Dir d = Dir(1 << i);
-            if (paths & d && currentNode->adj[d] != &DEAD_END && d != s.top()) {
+            if (paths & d && currentNode->adj[d] != &DEAD_END && d != s.top()) {            // checks if the direction is open, not already marked as a dead end, and not the direction we just came from
                 bool t = travel(d);
                 if (t) {
                     if (!map[x][y]) {
                         std::cout << "new node created" << std::endl;
                         map[x][y] = new Node(nodeNum++, x, y);
                     }
-                    map[x][y]->adj[opposite(lastStep)] = currentNode;
+                    map[x][y]->adj[opposite(lastStep)] = currentNode;                       // exchanges info between the two nodes
                     currentNode->adj[d] = map[x][y];
-                    goto end;
+                    goto end;               // Please forgive my sin, I only wanted to skip the backtracking code
                 } else {
-                    travel(opposite(lastStep));
+                    travel(opposite(lastStep));             // if dead end then retreat
                     currentNode->adj[d] = &DEAD_END;
                 }
             }
         }
-        s.pop();
-        travel(s.top());
+        s.pop();                        // if no direction yielded a node (i.e. all directions were dead ends), this node is effectively a dead end too
+        travel(s.top());                // backtrack
         goingBack = true;
 
     end:
+        // prints all the nodes, so you can keep track of the mouse's travel history
+        // note that the printout is rotated, so you need to turn your head
         for (int i = 0; i < 20; i++) {
             for (int j = 0; j < 20; j++) {
                 if (map[i][j])
