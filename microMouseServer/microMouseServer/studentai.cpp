@@ -8,6 +8,10 @@
 #include <iomanip>
 #include <queue>
 
+// origin coordinates
+const int OX = 0;
+const int OY = 0;
+
 // destination coordinates
 const int DX = 11;
 const int DY = 7;
@@ -52,6 +56,12 @@ void microMouseServer::studentAI() {
 
     static int x, y, nodeNum;               // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
     static Dir lastStep;                    // always updated to be the same direction as the step we just took
+
+    static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
+    static std::stack<Dir> s;               // use this stack for backtracking
+    static Node *rootNode;
+    static std::stack<Dir> optimalPath;
+    static std::stack<Dir> pathCopy;
 
     // sets a bit for open directions and clears a bit for blocked directions
     // thus, you can & the return with any Dir and see if that direction is open
@@ -98,6 +108,9 @@ void microMouseServer::studentAI() {
         while (true) {
             step(nextDir);
             steps++;
+            if ((x == rootNode->x && y == rootNode->y) || (x == DX && y == DY)) {               // even though rootNode/destNode might not have 3 open paths, it's still a node
+                return steps;
+            }
             int paths = test();
             paths &= opposite(lastStep) ^ 0b1111;               // mask out the direction we came from
             switch (paths) {
@@ -117,37 +130,23 @@ void microMouseServer::studentAI() {
         }
     };
 
-    static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
-    static std::stack<Dir> s;               // use this stack for backtracking
-    static Node *rootNode;
-    static std::stack<Dir> optimalPath;
-    static std::stack<Dir> pathCopy;
-
     if (newRun) {
-        x = y = 0;
-        // we should start at a node, just so that the loop can be simplified
-        int startingPaths = test();
-        switch (startingPaths ^ 0b1111) {
-        case N:
-        case E:
-        case W:
-        case S:
-            break;
-        default:
-            if (startingPaths & N)
-                travel(N);
-            else if (startingPaths & E)
-                travel(E);
-            else if (startingPaths & W)
-                travel(W);
-            else
-                travel(S);
+        x = OX;
+        y = OY;
+        if (test() == 0) {                  // resets firstRun if trapped in a 1x1 cell
+            printUI("Map reset");
+            firstRun = true;
+            graphBuilding = true;
+            foundFinish();
+            return;
         }
         if (firstRun) {
+            nodeNum = 0;
             memset(map, 0, 400 * sizeof(Node *));
-            map[x][y] = new Node(nodeNum++, x, y);
-            rootNode = map[x][y];
+            map[OX][OY] = new Node(nodeNum++, OX, OY);
+            rootNode = map[OX][OY];
             rootNode->d = 0;
+            optimalPath.empty();
         }
         pathCopy = optimalPath;
         newRun = false;
@@ -166,7 +165,7 @@ void microMouseServer::studentAI() {
                         int t = travel(d);              // t contains the distance we just travelled
                         if (t) {
                             if (map[x][y]) {
-                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};               // exchanges info between the two nodes
+                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};              // exchanges info between the two nodes
                                 currentNode->adj[d] = {map[x][y], t};
                                 travel(opposite(lastStep));
                             } else {
@@ -213,6 +212,17 @@ end:;
             }
 */
         } else {
+
+            for (int i = 0; i < 20; i++) {
+                for (int j = 0; j < 20; j++) {
+                    if (map[i][j])
+                        std::cout << std::setw(3) << map[i][j]->i;
+                    else
+                        std::cout << " . ";
+                }
+                std::cout << std::endl;
+            }
+
             // calculate optimal path
             std::queue<Node *> q;               // a node queue for our breadth-first-search approach to traversing the graph
             q.push(rootNode);
@@ -251,6 +261,25 @@ end:;
                 n = n->prev;
             }
             pathCopy = optimalPath;             // need a copy since we don't want to lose optimalPath
+            while (pathCopy.size() > 0) {
+                std::cout << ".";
+                switch (pathCopy.top()) {
+                case N:
+                    std::cout << "N";
+                    break;
+                case E:
+                    std::cout << "E";
+                    break;
+                case W:
+                    std::cout << "W";
+                    break;
+                case S:
+                    std::cout << "S";
+                }
+                pathCopy.pop();
+            }
+            std::cout << std::endl;
+            pathCopy = optimalPath;
             firstRun = false;                   // now every time studentAI() is called we will skip to the else statement below
         }
     } else {
