@@ -217,7 +217,7 @@ end:;
             std::cout << std::endl;
             for (int i = 0; i < 20; i++) {
                 for (int j = 0; j < 20; j++) {
-                    if (map[j][19 - i])
+                    if (map[j][19 - i] && map[j][19 - i] != &DEAD_END)
                         std::cout << std::setw(3) << map[j][19 - i]->i;
                     else
                         std::cout << "  .";
