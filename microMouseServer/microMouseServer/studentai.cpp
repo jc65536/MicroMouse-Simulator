@@ -5,6 +5,8 @@
 #include <map>
 #include <cstring>
 #include <algorithm>
+#include <iomanip>
+#include <queue>
 
 // destination coordinates
 const int DX = 11;
@@ -26,16 +28,21 @@ Dir opposite(Dir d) {
     }
 }
 
+struct Node;
+
+struct Pair {
+    Node *node;
+    int d;
+};
+
 // a node is any tile with more than 2 exit paths
 struct Node {
     int i, x, y;
-    std::map<Dir, Node *> adj = {{N, nullptr}, {E, nullptr}, {W, nullptr}, {S, nullptr}};
+    std::map<Dir, Pair> adj;
+    int d = INT_MAX;
+    Node *prev;
     Node (int i, int x, int y) : i(i), x(x), y(y) {}
 } DEAD_END(-1, -1, -1);
-
-int sq(int x) {
-    return x * x;
-}
 
 /* Usable functions:
  * bool isWallLeft();
@@ -49,12 +56,12 @@ int sq(int x) {
  */
 
 void microMouseServer::studentAI() {
-    // do not repeat studentAI()
-    static bool firstRun = true;
+    static bool newRun = true;              // reset every run
+    static bool firstRun = true;            // only true for the first run - how do I make this reset every map change?
 
     // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
     static int x, y, nodeNum;
-    static Dir lastStep;       // always updated to be the same direction as the step we just took
+    static Dir lastStep;                    // always updated to be the same direction as the step we just took
 
     // sets a bit for open directions and clears a bit for blocked directions
     // thus, you can & the return with any Dir and see if that direction is open
@@ -93,12 +100,14 @@ void microMouseServer::studentAI() {
         }
     };
 
-    // travel from a node in the specified direction
-    // stops at either a node or a dead end, and returns true for stopping at node or false for stopping at dead end
-    static auto travel = [&](Dir d) -> bool {
+    // travel from a node in the specified direction and stops at either a node or a dead end
+    // returns the number of steps taken to reach that node (or 0 for dead end)
+    static auto travel = [&](Dir d) -> int {
         Dir nextDir = d;
+        int steps = 0;
         while (true) {
             step(nextDir);
+            steps++;
             int paths = test();
             paths &= opposite(lastStep) ^ 0b1111;               // mask out the direction we came from
             switch (paths) {
@@ -110,20 +119,23 @@ void microMouseServer::studentAI() {
                 break;
             case 0:                                             // dead end
                 std::cout << "reached dead end " << x << ", " << y << std::endl;
-                return false;
+                return 0;
             default:                                            // reached node (crossroads)
                 std::cout << "reached node " << x << ", " << y << std::endl;
-                return true;
+                return steps;
             }
         }
     };
 
-    static Node *map[20][20]; // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
-    static std::stack<Dir> s;                  // use this stack for backtracking
-    static bool goingBack;
+    static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
+    static std::stack<Dir> s;               // use this stack for backtracking
+    static Node *rootNode;
+    static bool exploring = true;
+    static std::stack<Dir> optimalPath;
+    static std::stack<Dir> pathCopy;
 
-    if (firstRun) {
-        x = y = nodeNum = 0;
+    if (newRun) {
+        x = y = 0;
         // we should start at a node, just so that the loop can be simplified
         int startingPaths = test();
         switch (startingPaths) {
@@ -134,72 +146,116 @@ void microMouseServer::studentAI() {
             travel((Dir) startingPaths);
             break;
         }
-        std::memset(map, 0, 400 * sizeof(Node *));
-        map[x][y] = new Node(nodeNum++, x, y);  // set the first starting node
-        goingBack = firstRun = false;
+        memset(map, 0, 400 * sizeof(Node *));
+        map[x][y] = new Node(nodeNum++, x, y);              // set the first starting node
+        rootNode = map[x][y];
+        rootNode->d = 0;
+        pathCopy = optimalPath;                             // load optimal path on new run
+        newRun = false;
     }
 
-    Node *currentNode = map[x][y];
+    if (firstRun) {
+        if (exploring) {                    // explore all nodes
+            Node *currentNode = map[x][y];
+            int paths = test();
 
-    // if we were retreating from a dead end, no need to push an extraneous last step onto the stack - it's already there
-    if (!goingBack)
-        s.push(opposite(lastStep));
-    else
-        currentNode->adj[opposite(lastStep)] = &DEAD_END;
-    goingBack = false;
-
-    int paths = test();
-
-    // allows the mouse to go in the direction that minimizes its distance from the destination
-    std::pair<Dir, int> distanceDifferences[4] = {{N, sq(DX - x) + sq(DY - (y + 1))}, {E, sq(DX - (x + 1)) + sq(DY - y)}, {W, sq(DX - (x - 1)) + sq(DY - y)}, {S, sq(DX - x) + sq(DY - (y - 1))}};
-    std::sort(distanceDifferences, distanceDifferences + 4, [&](std::pair<Dir, int> &a, std::pair<Dir, int> &b) -> bool {
-        return a.second < b.second;
-    });
-
-    for (int i = 0; i < 4; i++) {
-        Dir d = distanceDifferences[i].first;
-        if (paths & d && currentNode->adj[d] != &DEAD_END && d != s.top()) {            // checks if the direction is open, not already marked as a dead end, and not the direction we just came from
-            bool t = travel(d);
-            if (t) {
-                bool testflag = false;
-                if (!map[x][y]) {
-                    testflag = true;
-                    std::cout << "new node created" << std::endl;
-                    map[x][y] = new Node(nodeNum++, x, y);
+            for (int i = 0; i < 4; i++) {
+                Dir d = Dir(1 << i);
+                if (paths & d) {
+                    if (!currentNode->adj[d].node) {
+                        int t = travel(d);
+                        if (t) {
+                            if (map[x][y]) {
+                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};               // exchanges info between the two nodes
+                                currentNode->adj[d] = {map[x][y], t};
+                                travel(opposite(lastStep));
+                            } else {
+                                std::cout << "new node created" << std::endl;
+                                map[x][y] = new Node(nodeNum++, x, y);
+                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};
+                                currentNode->adj[d] = {map[x][y], t};
+                                s.push(opposite(lastStep));                                         // push opposite of last step for backtracking
+                                goto end;
+                            }
+                        } else {
+                            travel(opposite(lastStep));                                             // if dead end then retreat
+                            currentNode->adj[d] = {&DEAD_END, 0};
+                        }
+                    }
+                } else {
+                    currentNode->adj[d] = {&DEAD_END, 0};
                 }
-                map[x][y]->adj[opposite(lastStep)] = currentNode;                       // exchanges info between the two nodes
-                currentNode->adj[d] = map[x][y];
-                if (testflag)
-                    goto end;               // Please forgive my sin, I only wanted to skip the backtracking code
-                else
-                    travel(opposite(lastStep));
-            } else {
-                travel(opposite(lastStep));             // if dead end then retreat
-                currentNode->adj[d] = &DEAD_END;
             }
-        }
-    }
-    std::cout << "going back" << std::endl;
-    travel(s.top());                // backtrack
-    s.pop();                        // if no direction yielded a node (i.e. all directions were dead ends), this node is effectively a dead end too
-    goingBack = true;
+
+            if (currentNode == rootNode) {
+                exploring = false;
+                goto end;
+            }
+            std::cout << "going back" << std::endl;
+            travel(s.top());                // backtrack
+            s.pop();
+            if ((currentNode->adj[N].node == &DEAD_END) + (currentNode->adj[E].node == &DEAD_END) + (currentNode->adj[W].node == &DEAD_END) + (currentNode->adj[S].node == &DEAD_END) == 3) {
+                std::cout << "this node dead" << std::endl;
+                map[currentNode->x][currentNode->y] = &DEAD_END;              // a node with 3 dead ends is effectively a dead end itself
+                map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
+            }
 
 end:
-    // prints all the nodes, so you can keep track of the mouse's travel history
-    // note that the printout is rotated, so you need to turn your head
-    for (int i = 0; i < 20; i++) {
-        for (int j = 0; j < 20; j++) {
-            if (map[i][j])
-                std::cout << map[i][j]->i << " ";
-            else
-                std::cout << "  ";
+            for (int i = 0; i < 20; i++) {
+                for (int j = 0; j < 20; j++) {
+                    if (map[i][j])
+                        std::cout << std::setw(3) << map[i][j]->i;
+                    else
+                        std::cout << " . ";
+                }
+                std::cout << std::endl;
+            }
+        } else {                           // calculate optimal path
+            std::queue<Node *> q;
+            q.push(rootNode);
+            bool visited[20][20];
+            memset(visited, false, 400 * sizeof(bool));
+
+            while (q.size() > 0) {
+                Node *currentNode = q.front();
+                visited[currentNode->x][currentNode->y] = true;
+                for (int i = 0; i < 4; i++) {
+                    Pair p = currentNode->adj[Dir(1 << i)];
+                    if (p.node != &DEAD_END) {
+                        if (currentNode->d + p.d < p.node->d) {
+                            p.node->d = currentNode->d + p.d;
+                            p.node->prev = currentNode;
+                        }
+                        if (!visited[p.node->x][p.node->y]) {
+                            q.push(p.node);
+                        }
+                    }
+                }
+                q.pop();
+            }
+
+            Node *n = map[DX][DY];
+            while (n != rootNode) {
+                std::cout << n->i << "<-" << n->prev->i << " (" << n->d << ")" << std::endl;
+                for (int i = 0; i < 4; i++) {
+                    Dir d = Dir(1 << i);
+                    if (n->prev->adj[d].node == n)
+                        optimalPath.push(d);
+                }
+                n = n->prev;
+            }
+            pathCopy = optimalPath;
+            firstRun = false;
         }
-        std::cout << std::endl;
+    } else {
+        // follow optimal path
+        travel(pathCopy.top());
+        pathCopy.pop();
+
+        if (pathCopy.empty()) {
+            foundFinish();
+            newRun = true;
+        }
     }
 
-    if (x == DX && y == DY) {
-        std::cout << "reached destination " << x << ", " << y << std::endl;
-        foundFinish();
-        firstRun = true;
-    }
 }
