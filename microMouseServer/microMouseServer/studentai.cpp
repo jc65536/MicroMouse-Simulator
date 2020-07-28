@@ -30,6 +30,7 @@ Dir opposite(Dir d) {
 
 struct Node;
 
+// I didn't want to use std::pair because pair.first isn't as intuitive as Pair.node
 struct Pair {
     Node *node;
     int d;
@@ -38,29 +39,18 @@ struct Pair {
 // a node is any tile with more than 2 exit paths
 struct Node {
     int i, x, y;
-    std::map<Dir, Pair> adj;
-    int d = INT_MAX;
-    Node *prev;
+    std::map<Dir, Pair> adj;                // maps the 4 directions to either a node and the distance to that node, or &DEAD_END
+    int d = INT_MAX;                        // shortest distance from origin
+    Node *prev;                             // the previous node that minimizes its distance from the origin - these pointers form the optimal node chain
     Node (int i, int x, int y) : i(i), x(x), y(y) {}
 } DEAD_END(-1, -1, -1);
 
-/* Usable functions:
- * bool isWallLeft();
- * bool isWallRight();
- * bool isWallForward();
- * bool moveForward();
- * bool turnLeft();
- * bool turnRight();
- * void foundFinish();
- * void printUI(const char *mesg);
- */
-
 void microMouseServer::studentAI() {
-    static bool newRun = true;              // reset every run
+    static bool newRun = true;              // state boolean that resets every run
     static bool firstRun = true;            // only true for the first run - how do I make this reset every map change?
+    static bool graphBuilding = true;
 
-    // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
-    static int x, y, nodeNum;
+    static int x, y, nodeNum;               // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
     static Dir lastStep;                    // always updated to be the same direction as the step we just took
 
     // sets a bit for open directions and clears a bit for blocked directions
@@ -118,10 +108,10 @@ void microMouseServer::studentAI() {
                 nextDir = (Dir) paths;
                 break;
             case 0:                                             // dead end
-                std::cout << "reached dead end " << x << ", " << y << std::endl;
+                //std::cout << "reached dead end " << x << ", " << y << std::endl;
                 return 0;
             default:                                            // reached node (crossroads)
-                std::cout << "reached node " << x << ", " << y << std::endl;
+                //std::cout << "reached node " << x << ", " << y << std::endl;
                 return steps;
             }
         }
@@ -130,7 +120,6 @@ void microMouseServer::studentAI() {
     static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
     static std::stack<Dir> s;               // use this stack for backtracking
     static Node *rootNode;
-    static bool exploring = true;
     static std::stack<Dir> optimalPath;
     static std::stack<Dir> pathCopy;
 
@@ -138,24 +127,35 @@ void microMouseServer::studentAI() {
         x = y = 0;
         // we should start at a node, just so that the loop can be simplified
         int startingPaths = test();
-        switch (startingPaths) {
+        switch (startingPaths ^ 0b1111) {
         case N:
         case E:
         case W:
         case S:
-            travel((Dir) startingPaths);
             break;
+        default:
+            if (startingPaths & N)
+                travel(N);
+            else if (startingPaths & E)
+                travel(E);
+            else if (startingPaths & W)
+                travel(W);
+            else
+                travel(S);
         }
-        memset(map, 0, 400 * sizeof(Node *));
-        map[x][y] = new Node(nodeNum++, x, y);              // set the first starting node
-        rootNode = map[x][y];
-        rootNode->d = 0;
-        pathCopy = optimalPath;                             // load optimal path on new run
+        if (firstRun) {
+            memset(map, 0, 400 * sizeof(Node *));
+            map[x][y] = new Node(nodeNum++, x, y);
+            rootNode = map[x][y];
+            rootNode->d = 0;
+        }
+        pathCopy = optimalPath;
         newRun = false;
     }
 
     if (firstRun) {
-        if (exploring) {                    // explore all nodes
+        if (graphBuilding) {
+            // explore all nodes
             Node *currentNode = map[x][y];
             int paths = test();
 
@@ -163,19 +163,19 @@ void microMouseServer::studentAI() {
                 Dir d = Dir(1 << i);
                 if (paths & d) {
                     if (!currentNode->adj[d].node) {
-                        int t = travel(d);
+                        int t = travel(d);              // t contains the distance we just travelled
                         if (t) {
                             if (map[x][y]) {
                                 map[x][y]->adj[opposite(lastStep)] = {currentNode, t};               // exchanges info between the two nodes
                                 currentNode->adj[d] = {map[x][y], t};
                                 travel(opposite(lastStep));
                             } else {
-                                std::cout << "new node created" << std::endl;
+                                //std::cout << "new node created" << std::endl;
                                 map[x][y] = new Node(nodeNum++, x, y);
                                 map[x][y]->adj[opposite(lastStep)] = {currentNode, t};
                                 currentNode->adj[d] = {map[x][y], t};
                                 s.push(opposite(lastStep));                                         // push opposite of last step for backtracking
-                                goto end;
+                                goto end;                                                           // Please forgive my sin ;)
                             }
                         } else {
                             travel(opposite(lastStep));                                             // if dead end then retreat
@@ -188,19 +188,20 @@ void microMouseServer::studentAI() {
             }
 
             if (currentNode == rootNode) {
-                exploring = false;
+                graphBuilding = false;              // we are done building the node graph
                 goto end;
             }
-            std::cout << "going back" << std::endl;
+            //std::cout << "going back" << std::endl;
             travel(s.top());                // backtrack
             s.pop();
             if ((currentNode->adj[N].node == &DEAD_END) + (currentNode->adj[E].node == &DEAD_END) + (currentNode->adj[W].node == &DEAD_END) + (currentNode->adj[S].node == &DEAD_END) == 3) {
-                std::cout << "this node dead" << std::endl;
-                map[currentNode->x][currentNode->y] = &DEAD_END;              // a node with 3 dead ends is effectively a dead end itself
+                //std::cout << "this node dead" << std::endl;
+                map[currentNode->x][currentNode->y] = &DEAD_END;                // a node with 3 dead ends is effectively a dead end itself
                 map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
             }
 
-end:
+end:;
+/*
             for (int i = 0; i < 20; i++) {
                 for (int j = 0; j < 20; j++) {
                     if (map[i][j])
@@ -210,15 +211,18 @@ end:
                 }
                 std::cout << std::endl;
             }
-        } else {                           // calculate optimal path
-            std::queue<Node *> q;
+*/
+        } else {
+            // calculate optimal path
+            std::queue<Node *> q;               // a node queue for our breadth-first-search approach to traversing the graph
             q.push(rootNode);
-            bool visited[20][20];
+            bool visited[20][20];               // visited[x][y] tells us if we have already calculated the node at x, y
             memset(visited, false, 400 * sizeof(bool));
+            visited[rootNode->x][rootNode->y] = true;
 
+            // traverses the node graph breadth-first (i.e. look at all neighbors first before moving on to neighbors' neighbors)
             while (q.size() > 0) {
                 Node *currentNode = q.front();
-                visited[currentNode->x][currentNode->y] = true;
                 for (int i = 0; i < 4; i++) {
                     Pair p = currentNode->adj[Dir(1 << i)];
                     if (p.node != &DEAD_END) {
@@ -228,6 +232,7 @@ end:
                         }
                         if (!visited[p.node->x][p.node->y]) {
                             q.push(p.node);
+                            visited[p.node->x][p.node->y] = true;
                         }
                     }
                 }
@@ -235,6 +240,7 @@ end:
             }
 
             Node *n = map[DX][DY];
+            // follows prev node chain from destination back to origin, and builds a direction stack
             while (n != rootNode) {
                 std::cout << n->i << "<-" << n->prev->i << " (" << n->d << ")" << std::endl;
                 for (int i = 0; i < 4; i++) {
@@ -244,8 +250,8 @@ end:
                 }
                 n = n->prev;
             }
-            pathCopy = optimalPath;
-            firstRun = false;
+            pathCopy = optimalPath;             // need a copy since we don't want to lose optimalPath
+            firstRun = false;                   // now every time studentAI() is called we will skip to the else statement below
         }
     } else {
         // follow optimal path
