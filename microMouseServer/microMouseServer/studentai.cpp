@@ -213,12 +213,14 @@ end:;
 */
         } else {
 
+            // prints node map
+            std::cout << std::endl;
             for (int i = 0; i < 20; i++) {
                 for (int j = 0; j < 20; j++) {
-                    if (map[i][j])
-                        std::cout << std::setw(3) << map[i][j]->i;
+                    if (map[j][19 - i])
+                        std::cout << std::setw(3) << map[j][19 - i]->i;
                     else
-                        std::cout << " . ";
+                        std::cout << "  .";
                 }
                 std::cout << std::endl;
             }
