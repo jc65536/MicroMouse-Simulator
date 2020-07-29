@@ -127,10 +127,8 @@ void microMouseServer::studentAI() {
                 nextDir = (Dir) paths;
                 break;
             case 0:                                             // dead end
-                //std::cout << "reached dead end " << x << ", " << y << std::endl;
                 return 0;
             default:                                            // reached node (crossroads)
-                //std::cout << "reached node " << x << ", " << y << std::endl;
                 return steps;
             }
         }
@@ -139,8 +137,8 @@ void microMouseServer::studentAI() {
     if (newRun) {
         x = OX;
         y = OY;
-        if (test() == 0) {                  // resets firstRun if trapped in a 1x1 cell
-            printUI("Map reset");
+        if (test() == 0) {                                  // resets firstRun if trapped in a 1x1 cell
+            printUI("Map reset.");
             firstRun = true;
             graphBuilding = true;
             foundFinish();
@@ -152,7 +150,7 @@ void microMouseServer::studentAI() {
             map[OX][OY] = new Node(nodeNum++, OX, OY);
             rootNode = map[OX][OY];
             rootNode->d = 0;
-            optimalPath.empty();
+            optimalPath = std::stack<Dir>();                // clear optimalPath
         }
         pathCopy = optimalPath;
         newRun = false;
@@ -174,12 +172,11 @@ void microMouseServer::studentAI() {
                                 currentNode->adj[d] = {map[x][y], t};
                                 travel(opposite(lastStep));
                             } else {
-                                //std::cout << "new node created" << std::endl;
                                 map[x][y] = new Node(nodeNum++, x, y);
                                 map[x][y]->adj[opposite(lastStep)] = {currentNode, t};
                                 currentNode->adj[d] = {map[x][y], t};
                                 s.push(opposite(lastStep));                                         // push opposite of last step for backtracking
-                                goto end;                                                           // Please forgive my sin ;)
+                                return;
                             }
                         } else {
                             travel(opposite(lastStep));                                             // if dead end then retreat
@@ -194,7 +191,6 @@ void microMouseServer::studentAI() {
             if (currentNode == rootNode) {
                 graphBuilding = false;              // we are done building the node graph
             } else {
-                //std::cout << "going back" << std::endl;
                 travel(s.top());                    // backtrack
                 s.pop();
                 // a node with 3 dead ends is effectively a dead end itself
@@ -208,19 +204,6 @@ void microMouseServer::studentAI() {
                     map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
                 }
             }
-
-end:;
-/*
-            for (int i = 0; i < 20; i++) {
-                for (int j = 0; j < 20; j++) {
-                    if (map[i][j])
-                        std::cout << std::setw(3) << map[i][j]->i;
-                    else
-                        std::cout << " . ";
-                }
-                std::cout << std::endl;
-            }
-*/
         } else {
 
             // prints node map
@@ -264,8 +247,9 @@ end:;
 
             Node *n = map[DX][DY];
             // follows prev node chain from destination back to origin, and builds a direction stack
+            std::cout << std::endl << "Optimal path (total " << n->d << "):" << std::endl;
             while (n != rootNode) {
-                std::cout << n->i << "<-" << n->prev->i << " (" << n->d << ")" << std::endl;
+                std::cout << n->i << "<-" << n->prev->i << " (" << (n->d - n->prev->d) << ")" << std::endl;
                 int min = INT_MAX;
                 Dir d = N;
                 for (int i = 0; i < 4; i++) {
