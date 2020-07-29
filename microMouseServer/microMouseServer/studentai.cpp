@@ -40,16 +40,21 @@ struct Pair {
     int d;
 };
 
-// a node is any tile with more than 2 exit paths
+// a node is any tile with more than 2 exit paths, with the exception of the root node (origin) and destination node
 struct Node {
     int i, x, y;
     std::map<Dir, Pair> adj;                // maps the 4 directions to either a node and the distance to that node, or &DEAD_END
     int d = INT_MAX;                        // shortest distance from origin
     Node *prev;                             // the previous node that minimizes its distance from the origin - these pointers form the optimal node chain
     Node (int i, int x, int y) : i(i), x(x), y(y) {}
-} DEAD_END(-1, -1, -1);
+};
 
 void microMouseServer::studentAI() {
+    static int OX = 0;
+    static int OY = 0;
+    static int DX = 11;
+    static int DY = 7;
+
     static bool newRun = true;              // state boolean that resets every run
     static bool firstRun = true;            // only true for the first run - how do I make this reset every map change?
     static bool graphBuilding = true;
@@ -57,6 +62,7 @@ void microMouseServer::studentAI() {
     static int x, y, nodeNum;               // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
     static Dir lastStep;                    // always updated to be the same direction as the step we just took
 
+    static Node DEAD_END(-1, -1, -1);
     static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
     static std::stack<Dir> s;               // use this stack for backtracking
     static Node *rootNode;
@@ -108,7 +114,7 @@ void microMouseServer::studentAI() {
         while (true) {
             step(nextDir);
             steps++;
-            if ((x == rootNode->x && y == rootNode->y) || (x == DX && y == DY)) {               // even though rootNode/destNode might not have 3 open paths, it's still a node
+            if (map[x][y] == rootNode || (x == DX && y == DY)) {               // even though rootNode/destNode might not have 3 open paths, it's still a node
                 return steps;
             }
             int paths = test();
@@ -157,7 +163,6 @@ void microMouseServer::studentAI() {
             // explore all nodes
             Node *currentNode = map[x][y];
             int paths = test();
-
             for (int i = 0; i < 4; i++) {
                 Dir d = Dir(1 << i);
                 if (paths & d) {
@@ -188,15 +193,20 @@ void microMouseServer::studentAI() {
 
             if (currentNode == rootNode) {
                 graphBuilding = false;              // we are done building the node graph
-                goto end;
-            }
-            //std::cout << "going back" << std::endl;
-            travel(s.top());                // backtrack
-            s.pop();
-            if ((currentNode->adj[N].node == &DEAD_END) + (currentNode->adj[E].node == &DEAD_END) + (currentNode->adj[W].node == &DEAD_END) + (currentNode->adj[S].node == &DEAD_END) == 3) {
-                //std::cout << "this node dead" << std::endl;
-                map[currentNode->x][currentNode->y] = &DEAD_END;                // a node with 3 dead ends is effectively a dead end itself
-                map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
+            } else {
+                //std::cout << "going back" << std::endl;
+                travel(s.top());                    // backtrack
+                s.pop();
+                // a node with 3 dead ends is effectively a dead end itself
+                int deadEnds = 0;
+                for (int i = 0; i < 4; i++) {
+                    deadEnds += currentNode->adj[Dir(1 << i)].node == &DEAD_END;
+                }
+                if (deadEnds == 3 && currentNode != map[DX][DY]) {
+                    //std::cout << "this node dead" << std::endl;
+                    map[currentNode->x][currentNode->y] = &DEAD_END;
+                    map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
+                }
             }
 
 end:;
@@ -241,6 +251,7 @@ end:;
                         if (currentNode->d + p.d < p.node->d) {
                             p.node->d = currentNode->d + p.d;
                             p.node->prev = currentNode;
+                            q.push(p.node);             // fixes the problem of not updating nodes when a better path is found
                         }
                         if (!visited[p.node->x][p.node->y]) {
                             q.push(p.node);
@@ -255,33 +266,19 @@ end:;
             // follows prev node chain from destination back to origin, and builds a direction stack
             while (n != rootNode) {
                 std::cout << n->i << "<-" << n->prev->i << " (" << n->d << ")" << std::endl;
+                int min = INT_MAX;
+                Dir d = N;
                 for (int i = 0; i < 4; i++) {
-                    Dir d = Dir(1 << i);
-                    if (n->prev->adj[d].node == n)
-                        optimalPath.push(d);
+                    Pair p = n->prev->adj[Dir(1 << i)];
+                    if (p.node == n && p.d < min) {
+                        min = p.d;
+                        d = Dir(1 << i);
+                    }
                 }
+                optimalPath.push(d);
                 n = n->prev;
             }
             pathCopy = optimalPath;             // need a copy since we don't want to lose optimalPath
-            while (pathCopy.size() > 0) {
-                std::cout << ".";
-                switch (pathCopy.top()) {
-                case N:
-                    std::cout << "N";
-                    break;
-                case E:
-                    std::cout << "E";
-                    break;
-                case W:
-                    std::cout << "W";
-                    break;
-                case S:
-                    std::cout << "S";
-                }
-                pathCopy.pop();
-            }
-            std::cout << std::endl;
-            pathCopy = optimalPath;
             firstRun = false;                   // now every time studentAI() is called we will skip to the else statement below
         }
     } else {
