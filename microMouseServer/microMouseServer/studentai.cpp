@@ -1,4 +1,3 @@
-
 #include "micromouseserver.h"
 #include <iostream>
 #include <stack>
@@ -7,14 +6,6 @@
 #include <algorithm>
 #include <iomanip>
 #include <queue>
-
-// origin coordinates
-const int OX = 0;
-const int OY = 0;
-
-// destination coordinates
-const int DX = 11;
-const int DY = 7;
 
 // cardinal directions
 enum Dir { N = 0b0001, E = 0b0010, W = 0b0100, S = 0b1000 };
@@ -50,20 +41,23 @@ struct Node {
 };
 
 void microMouseServer::studentAI() {
+    // origin coordinates
     static int OX = 0;
     static int OY = 0;
+
+    // destination coordinates
     static int DX = 11;
     static int DY = 7;
 
-    static bool newRun = true;              // state boolean that resets every run
-    static bool firstRun = true;            // only true for the first run - how do I make this reset every map change?
-    static bool graphBuilding = true;
+    static bool newRun = true;              // state boolean that resets every time you hit "Start Run"
+    static bool firstRun = true;            // resets every time you change map - indicate map change by enclosing the starting tile in walls and hitting "Start Run"
+    static bool graphBuilding = true;       // if the mouse is currently exploring all nodes to build the node graph
 
-    static int x, y, nodeNum;               // x: mouse current x position; y: mouse current y position; nodeNum: just a counter to identify each node when I print them later
+    static int x, y, nodeNum;               // x, y are updated every step; nodeNum is just a counter to identify each node when I print them later
     static Dir lastStep;                    // always updated to be the same direction as the step we just took
 
     static Node DEAD_END(-1, -1, -1);
-    static Node *map[20][20];               // map[x][y] will tell us if we are at an existing node or an unvisited tile, since map is cleared to 0 by default
+    static Node *map[20][20];               // map[x][y] will give us a pointer to an existing node or a false pointer
     static std::stack<Dir> s;               // use this stack for backtracking
     static Node *rootNode;
     static std::stack<Dir> optimalPath;
@@ -137,7 +131,7 @@ void microMouseServer::studentAI() {
     if (newRun) {
         x = OX;
         y = OY;
-        if (test() == 0) {                                  // resets firstRun if trapped in a 1x1 cell
+        if (test() == 0) {              // resets firstRun if trapped in a 1x1 cell
             printUI("Map reset.");
             firstRun = true;
             graphBuilding = true;
@@ -168,18 +162,22 @@ void microMouseServer::studentAI() {
                         int t = travel(d);              // t contains the distance we just travelled
                         if (t) {
                             if (map[x][y]) {
-                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};              // exchanges info between the two nodes
+                                // exchanges info between the two nodes
+                                map[x][y]->adj[opposite(lastStep)] = {currentNode, t};
                                 currentNode->adj[d] = {map[x][y], t};
                                 travel(opposite(lastStep));
                             } else {
                                 map[x][y] = new Node(nodeNum++, x, y);
                                 map[x][y]->adj[opposite(lastStep)] = {currentNode, t};
                                 currentNode->adj[d] = {map[x][y], t};
-                                s.push(opposite(lastStep));                                         // push opposite of last step for backtracking
+                                // push opposite of last step so we can backtrack later
+                                s.push(opposite(lastStep));
+                                // skip the rest of the code and iterate again for the new node
                                 return;
                             }
                         } else {
-                            travel(opposite(lastStep));                                             // if dead end then retreat
+                            // retreat since we hit a dead end
+                            travel(opposite(lastStep));
                             currentNode->adj[d] = {&DEAD_END, 0};
                         }
                     }
@@ -189,23 +187,24 @@ void microMouseServer::studentAI() {
             }
 
             if (currentNode == rootNode) {
-                graphBuilding = false;              // we are done building the node graph
+                // we are done building the node graph if we had to backtrack all the way to rootNode
+                graphBuilding = false;
             } else {
-                travel(s.top());                    // backtrack
+                // backtrack
+                travel(s.top());
                 s.pop();
                 // a node with 3 dead ends is effectively a dead end itself
                 int deadEnds = 0;
                 for (int i = 0; i < 4; i++) {
                     deadEnds += currentNode->adj[Dir(1 << i)].node == &DEAD_END;
                 }
+                // the destination tile is always a node, even if it has 3 dead ends
                 if (deadEnds == 3 && currentNode != map[DX][DY]) {
-                    //std::cout << "this node dead" << std::endl;
                     map[currentNode->x][currentNode->y] = &DEAD_END;
                     map[x][y]->adj[opposite(lastStep)] = {&DEAD_END, 0};
                 }
             }
         } else {
-
             // prints node map
             std::cout << std::endl;
             for (int i = 0; i < 20; i++) {
@@ -231,10 +230,11 @@ void microMouseServer::studentAI() {
                 for (int i = 0; i < 4; i++) {
                     Pair p = currentNode->adj[Dir(1 << i)];
                     if (p.node != &DEAD_END) {
+                        // updates best distance and prev node if the path from currentNode is shorter
                         if (currentNode->d + p.d < p.node->d) {
                             p.node->d = currentNode->d + p.d;
                             p.node->prev = currentNode;
-                            q.push(p.node);             // fixes the problem of not updating nodes when a better path is found
+                            q.push(p.node);             // fixes the problem of not updating nodes when a better path is found, because the algo will check any updated nodes again
                         }
                         if (!visited[p.node->x][p.node->y]) {
                             q.push(p.node);
@@ -262,8 +262,9 @@ void microMouseServer::studentAI() {
                 optimalPath.push(d);
                 n = n->prev;
             }
+            printUI("Optimal path calculated (see stdout for more).");
             pathCopy = optimalPath;             // need a copy since we don't want to lose optimalPath
-            firstRun = false;                   // now every time studentAI() is called we will skip to the else statement below
+            firstRun = false;                   // when this is false, every time studentAI() is called we will skip to the else statement below
         }
     } else {
         // follow optimal path
